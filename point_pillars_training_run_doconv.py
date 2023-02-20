@@ -8,32 +8,32 @@ from easydict import EasyDict as edict
 
 from config import Parameters
 from loss import PointPillarNetworkLoss
-from network import build_point_pillar_graph
+from network import build_point_pillar_graph, build_point_pillar_graph_depthwise_overparameterization
 from processors import SimpleDataGenerator
 from readers import KittiDataReader
 
 from train_utils import parse_data_ids, parse_data_from_ids
+
+
 #
 # DATA_ROOT = "./training"  # TODO make main arg
 # MODEL_ROOT = "./logs"
 
 def generate_config_from_cmd_args():
     parser = argparse.ArgumentParser(description='PointPillars training')
-    parser.add_argument('--gpu_idx', default=0, type=int, required=False, 
-        help='GPU index to use for inference')
+    parser.add_argument('--gpu_idx', default=0, type=int, required=False,
+                        help='GPU index to use for inference')
     parser.add_argument('--imageset_path', default=None, type=str, required=True,
-        help='Path to the root folder containing train_img_ids.txt and val_img_ids.txt')
-    parser.add_argument('--data_root', default=None, type=str, required=True, 
-        help='Training/Validation data root path holding folders velodyne, calib')
+                        help='Path to the root folder containing train_img_ids.txt and val_img_ids.txt')
+    parser.add_argument('--data_root', default=None, type=str, required=True,
+                        help='Training/Validation data root path holding folders velodyne, calib')
     parser.add_argument('--model_root', default='./logs/', required=True,
-        help='Path for dumping training logs and model weights')
-    
+                        help='Path for dumping training logs and model weights')
+
     configs = edict(vars(parser.parse_args()))
     return configs
 
-
-def train_PillarNet(configs):
-
+def train_DOPillarNet(configs):
     logging.info("Parsing train/val image ids")
     train_ids, valid_ids = parse_data_ids(configs.imageset_path)
     logging.debug("First 8 train dataset ids: {}".format(train_ids[:9]))
@@ -42,14 +42,14 @@ def train_PillarNet(configs):
 
     params = Parameters()
     logging.info("Building PointPillars model...")
-    pillar_net = build_point_pillar_graph(params)
+    pillar_net = build_point_pillar_graph_depthwise_overparameterization(params)
     # inputs: [input_pillars, input_indices]    outputs: [occ, loc, size, angle, heading, clf]
 
-    if os.path.exists(os.path.join(configs.model_root, "model.h5")):
-        logging.info("Using pre-trained weights found at path: {}".format(configs.model_root))
-        pillar_net.load_weights(os.path.join(configs.model_root, "model.h5"))
-    else:
-        logging.info("No pre-trained weights found. Initializing weights and training model.")
+    # if os.path.exists(os.path.join(configs.model_root, "model.h5")):
+    #     logging.info("Using pre-trained weights found at path: {}".format(configs.model_root))
+    #     pillar_net.load_weights(os.path.join(configs.model_root, "model.h5"))
+    # else:
+    logging.info("No pre-trained weights found. Initializing weights and training model.")
 
     loss = PointPillarNetworkLoss(params)
     optimizer = tf.keras.optimizers.Adam(learning_rate=params.learning_rate,
@@ -60,17 +60,20 @@ def train_PillarNet(configs):
 
     train_lidar_files, train_label_files, train_calib_files = parse_data_from_ids(train_ids, configs.data_root)
     valid_lidar_files, valid_label_files, valid_calib_files = parse_data_from_ids(valid_ids, configs.data_root)
-    
+
     logging.debug("First 8 train LiDAR pointcloud files: {}".format(train_lidar_files[:9]))
     logging.debug("First 8 training LiDAR label files: {}".format(train_label_files[:9]))
     logging.debug("First 8 training sensor calib files: {}".format(train_label_files[:9]))
 
-    training_gen = SimpleDataGenerator(data_reader, params.batch_size, train_lidar_files, train_label_files, train_calib_files)
-    validation_gen = SimpleDataGenerator(data_reader, params.batch_size, valid_lidar_files, valid_label_files, valid_calib_files)
+    training_gen = SimpleDataGenerator(data_reader, params.batch_size, train_lidar_files, train_label_files,
+                                       train_calib_files)
+    validation_gen = SimpleDataGenerator(data_reader, params.batch_size, valid_lidar_files, valid_label_files,
+                                         valid_calib_files)
 
     log_dir = configs.model_root
     epoch_to_decay = int(
-        np.round(params.iters_to_decay / params.batch_size * int(np.ceil(float(len(train_label_files)) / params.batch_size))))
+        np.round(params.iters_to_decay / params.batch_size * int(
+            np.ceil(float(len(train_label_files)) / params.batch_size))))
     callbacks = [
         tf.keras.callbacks.TensorBoard(log_dir=log_dir, update_freq=10),
         tf.keras.callbacks.ModelCheckpoint(filepath=os.path.join(log_dir, "model.h5"),
@@ -82,7 +85,7 @@ def train_PillarNet(configs):
 
     try:
         pillar_net.fit(training_gen,
-                       validation_data = validation_gen,
+                       validation_data=validation_gen,
                        steps_per_epoch=len(training_gen),
                        callbacks=callbacks,
                        use_multiprocessing=False,
@@ -102,4 +105,5 @@ if __name__ == '__main__':
     # tf.get_logger().setLevel("ERROR")
 
     logging.info("Model training logs and trained weights will be saved at path: {}".format(train_configs.model_root))
-    train_PillarNet(train_configs)
+
+    train_DOPillarNet(train_configs)
