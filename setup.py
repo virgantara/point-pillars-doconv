@@ -4,6 +4,7 @@ import sys
 import platform
 import subprocess
 
+import numpy
 from setuptools import setup, Extension
 from setuptools.command.build_ext import build_ext
 from distutils.version import LooseVersion
@@ -54,6 +55,7 @@ class CMakeBuild(build_ext):
                                                               self.distribution.get_version())
         if not os.path.exists(self.build_temp):
             os.makedirs(self.build_temp)
+        print("EXTDIR",extdir)
         subprocess.check_call(['cmake', ext.sourcedir] + cmake_args, cwd=self.build_temp, env=env)
         subprocess.check_call(['cmake', '--build', '.'] + build_args, cwd=self.build_temp)
 
@@ -62,7 +64,7 @@ setup(
     version='0.0.1',
     description='point_pillars',
     long_description='',
-    ext_modules=[CMakeExtension('point_pillars')],
+    ext_modules=[CMakeExtension(name='point_pillars')],
     cmdclass=dict(build_ext=CMakeBuild),
     zip_safe=False,
 )
